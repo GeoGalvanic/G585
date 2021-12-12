@@ -1,0 +1,96 @@
+{% extends "G585/template.html" %}
+{% load static %}
+
+{% block title %}GEOG 585 Final Project{% endblock %}
+{% block head-ext %}
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/leaflet.css" type="text/css" crossorigin="">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/leaflet.js" crossorigin=""></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+    <script src="{% static 'G585/heatmap.js' %}"></script>
+    <script src="{% static 'G585/leaflet-heatmap.js' %}"></script>
+    <script src='https://unpkg.com/@turf/turf@6/turf.min.js'></script>
+    <script src="{% static 'G585/OSM_FOOD.js' %}"></script>
+    <script src="{% static 'G585/OSM_EDU.js' %}"></script>
+    <script src="{% static 'G585/LA_Bus_Line_Nodes.js' %}"></script>
+    <link rel="stylesheet" type="text/css" href="{% static 'G585/map.css' %}" />
+    <script src="{% static 'G585/map.js' %}"></script>
+{% endblock %}
+
+{% block page-title %}GEOG: 585 | FOSS Web Mapping | LA Public Amenity Accessibility{% endblock %}
+
+
+{% block flex-content %}
+    <div class="bubble-container" style="max-width: 1800px !important">
+        <div id="mapid"></div>
+        <div id="toggle-container">
+            <div>Select Heatmap Data Source</div>
+            <input type="radio" id="food-select" name="heatmap-select" value="food" onclick="radioSelect(this);" checked>
+            <label for="food-select">Food Amenities</label>
+            <br />
+            <input type="radio" id="edu-select" name="heatmap-select" value="edu" onclick="radioSelect(this);">
+            <label for="edu-select">Educational Amenities</label>
+        </div>
+
+        <h2>About this map</h2>
+        <p>This page shows the accessibility of various commidities in Los Angeles via public transportation
+            networks. Click on the map to calculate the number of amenities in the area based on roughly estimated
+            travel time*. Additional layers can be expossed from the control in the top-right of the map. Clicking
+            on an ameities icon while display a popup with details about that amenity.</p>
+        
+        <h2>How the amenity numbers are caclulated</h2>
+        <ol>
+            <li>Clicking on the map triggers a leaflet map click event, the coordinates of which are used in a
+                Javascript function.</li>
+            <li>Background GeoJSON data containing the all the nodes on the bus route network topology is accessed,
+                the Turf.js nearest function finds the ID of the closest to the map click event. A temporary marker is
+                placed on the map at the location of the node.</li>
+            <li>The ID of the node is sent in a GET request to the Django webserver.</li>
+            <li>Django uses the node ID sent with the request in order to execute an SQL command on a PostgreSQL
+                database server. The command is executed via specific Django functions that protect against SQL
+                injection attacks.
+            </li>
+            <li>
+                The Postgres server creates temporary tables in order to store intermediary data. The first task it
+                builds a list of all the nodes in the network topology within the maximum distance (cost) of the node
+                ID that was sent to the server using the pgRouting drivingDistance function. Secondly the server
+                performs a PostGIS concaveHull calculation using a subset of nodes for each of the distances needed,
+                (4000, 8000, and 12000 meters).
+            </li>
+            <li>The Django recieves each of the concave hull polygons as part of GeoDjango models, which are then
+                serialized into GeoJSON feature collection format.
+            </li>
+            <li>The GeoJSON data is sent back to the client as a reponse to the GET request.</li>
+            <li>The client loops through all of the amenities using the Turf.js booleanWithin function and counts
+                the number in each of the concave hull polygons.
+            </li>
+            <li>The final results are added to a popup which is opened at the previously placed marker.</li>
+        </ol>
+
+        <h2>Caveats and room for improvement</h2>
+        <p>*Travel times assume a uniform travel speed of 800 meters/min (~30 mph). The network topology assumes that
+            buses can stop at any node, can turn in any direction, are available on demand and can travel in any
+            direction along the route. Additionally there is no cosideration taken for a person's ability to walk from
+            places along the network route.
+        </p>
+        <p>
+            An alpha shape polygon would be a more accurate representation of travel times than a concave hull because
+            it allows for "holes" inside of the geometry. I stuck with the concave hulls because in my testing of the
+            pgRouting alphaShape function requires a spoon_radius variable that requires a lot of manual tweaking in
+            order to get a decent polygon, which is not very useful when fetching polygons that could be of any variable
+            size.
+        </p>
+        <p>
+            A more accurate representation of areas accessible via bus transportation would likely draw a disolved 
+            buffer around the bus stops, based on how long it would take to reach the stop (i.e. if a bus ride took 3
+            minutes, a buffer of 2 minutes walking would represent the "5 minute" accessible area). Overall the network
+            topology would require a lot more work in order to make it accurate, as such it should be taken as a proof
+            of concept and not used as an actual measurment. 
+        </p>
+        <p>
+            This application could be expanded further by providing a list of amenities within the travel area, rather
+            than just a count. The OSM data is currently only a snapshot of the data as it existed in August 2021, it
+            would likely be useful to automate pulling in new/edited OSM in some form. It would also easily be possible
+            to extend the map by including more categories of amenities or by including the entire LA county area.
+        </p>
+    </div>
+{% endblock%}
